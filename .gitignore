@@ -69,3 +69,6 @@ venv.bak/
 
 # Local configuration
 config.local.json
+
+# Dataset
+dataset/
