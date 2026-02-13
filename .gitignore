@@ -1,0 +1,71 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+dist/
+build/
+*.egg-info/
+
+# Distribution / packaging
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyInstaller
+#  -  Unless you have specific reasons otherwise, it's recommended to ignore the following files
+#  -  https://github.com/pyinstaller/pyinstaller/issues/1113#issuecomment-230570724
+# *.spec
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+#  -  https://github.com/pypa/pipenv/issues/2098
+.Pipfile
+.Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Virtual environments
+venv/
+env/
+ENV/
+virtualenv/
+.venv/
+env.bak/
+venv.bak/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Local configuration
+config.local.json
