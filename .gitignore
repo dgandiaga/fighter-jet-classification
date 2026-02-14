@@ -70,5 +70,6 @@ venv.bak/
 # Local configuration
 config.local.json
 
-# Dataset
+# Dataset and model
 dataset/
+train/
