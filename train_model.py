@@ -27,7 +27,7 @@ def create_data_loaders(data_dir, batch_size=32, val_split=0.2, test_split=0.1):
     """
     # Define transforms for training and validation/test
     train_transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((224*2, 224*2)),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomRotation(degrees=90),
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
