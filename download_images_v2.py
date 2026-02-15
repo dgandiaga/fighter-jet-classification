@@ -2,9 +2,17 @@ import os
 import argparse
 import logging
 from icrawler.builtin import BingImageCrawler
+from icrawler import ImageDownloader
+from curl_cffi import requests
+from requests.adapters import HTTPAdapter
 import shutil
-from PIL import Image
-import imagehash
+import json
+
+import random
+import time
+
+# Import utility functions from utils
+from utils import get_file_count, get_image_hashes, remove_duplicates
 
 # Configure logging
 logging.basicConfig(
@@ -17,125 +25,106 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def get_file_count(directory):
-    """Get the number of files in a directory"""
-    if not os.path.exists(directory):
-        return 0
-    return len([f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))])
+# 1. Low-level override: This forces EVERY request in the session to use 20s
+class TimeoutAdapter(HTTPAdapter):
+    def send(self, request, **kwargs):
+        kwargs['timeout'] = 20  # Global override
+        return super().send(request, **kwargs)
 
-def get_image_hashes(directory):
-    """Get image hashes for all images in a directory"""
-    hashes = {}
-    for filename in os.listdir(directory):
-        file_path = os.path.join(directory, filename)
-        if os.path.isfile(file_path):
-            try:
-                # Only process image files
-                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
-                    image = Image.open(file_path)
-                    hash_value = imagehash.average_hash(image)
-                    hashes[hash_value] = file_path
-            except Exception as e:
-                logger.warning(f"Failed to process {file_path}: {e}")
-    return hashes
-
-def remove_duplicates(directory, threshold=10):
-    """Remove duplicate images from a directory based on image hashes"""
-    logger.info(f"Removing duplicates from {directory}")
-    
-    # Get all image hashes
-    hashes = get_image_hashes(directory)
-    
-    # Group similar hashes
-    unique_hashes = []
-    duplicates = []
-    
-    for hash_value, file_path in hashes.items():
-        is_duplicate = False
-        for existing_hash in unique_hashes:
-            if existing_hash - hash_value <= threshold:
-                is_duplicate = True
-                break
+# 2. Custom Downloader with your Stealth Headers
+class UltimateStealthDownloader(ImageDownloader):
+    def download(self, task, default_ext, timeout=20, max_retry=2, **kwargs):
+        # 1. Rotate User-Agents to avoid 403 blocks
+        agents = [
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15'
+        ]
         
-        if is_duplicate:
-            duplicates.append(file_path)
-        else:
-            unique_hashes.append(hash_value)
-    
-    # Remove duplicates (keep only the first occurrence)
-    for duplicate in duplicates:
-        try:
-            os.remove(duplicate)
-            logger.info(f"Removed duplicate: {duplicate}")
-        except Exception as e:
-            logger.error(f"Failed to remove {duplicate}: {e}")
-    
-    logger.warning(f"Removed {len(duplicates)} duplicates from {directory}")
-    
-    return len(duplicates)
+        # 2. Add full 'Accept' suite to stop 406 errors
+        task['headers'] = {
+            'User-Agent': random.choice(agents),
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://www.bing.com/',
+            'Cache-Control': 'no-cache',
+            'DNT': '1' # Do Not Track
+        }
 
-def get_image_counts():
+        # 3. Random Human Delay: Stop the "Machine Speed" trigger
+        time.sleep(random.uniform(1.5, 4.0))
+        
+        return super(UltimateStealthDownloader, self).download(
+            task, default_ext, timeout=timeout, max_retry=max_retry, **kwargs
+        )
+    
+def get_image_counts(aircraft_list):
     """Get the count of images for each aircraft class"""
-    aircraft_list = [
-        {"name": "Lockheed_Martin_F-35", "search_term": "Lockheed Martin F-35 fighter jet"},
-        {"name": "Chengdu_J-20", "search_term": "Chengdu J-20 fighter jet"},
-        {"name": "Eurofighter_Typhoon", "search_term": "Eurofighter Typhoon fighter jet"},
-        {"name": "Dassault_Rafale", "search_term": "Dassault Rafale fighter jet"},
-        {"name": "Saab_Gripen", "search_term": "Saab Gripen fighter jet"}
-    ]
     
     counts = {}
     for aircraft in aircraft_list:
-        output_dir = f'dataset/{aircraft["name"]}'
-        counts[aircraft["name"]] = get_file_count(output_dir)
+        output_dir = f'dataset/{aircraft}'
+        counts[aircraft] = get_file_count(output_dir)
     
     return counts
 
 
-def persistent_download(aircraft_list, target_count):
+def persistent_download(config_data, target_count):
     """Download images for each aircraft class"""
-    logger.info(f"Starting download process for {target_count} images per class")
-    max_tries = 10
+    logger.warning(f"Starting download process for {target_count} images per class")
+    max_tries = 2
     
-    for aircraft in aircraft_list:
-        n_attempts = 0
-        output_dir = f'dataset/{aircraft["name"]}'
+    for aircraft, queries in config_data.items():
         
-        # Keep looping until we actually have target_count files on disk
-        while get_file_count(output_dir) < target_count:
-            current_count = get_file_count(output_dir)
-            needed = target_count - current_count
-            
-            logger.warning(f"📊 Progress for {aircraft['name']}: {current_count}/{target_count}. Crawling for more...")
-            
-            # We use an offset to skip images we've likely already seen/failed
-            # This prevents the 'already downloaded' skip logic from ending the script
-            crawler = BingImageCrawler(storage={'root_dir': output_dir},
-                                       log_level=logging.ERROR)
-            crawler.session.timeout = 20
-            
-            # We ask for 1.5x what we need to account for dead links
-            crawler.crawl(
-                keyword=aircraft['search_term'],
-                max_num=int(needed * 1.5),
-                offset=current_count,
-                file_idx_offset=current_count
-            )
-            
-            # Remove duplicates after each crawl
-            remove_duplicates(output_dir)
-            
-            # Safety break: if we didn't gain any new images in a loop, stop to avoid infinite loop
-            if get_file_count(output_dir) == current_count:
-                logger.warning(f"⚠️ No new images found for {aircraft['name']} in the {n_attempts+1} try")
-                if n_attempts >= max_tries:
-                    logger.warning(f"⚠️ No new images found for {aircraft['name']} over {max_tries} loops. Try a broader search term.")
-                    break
-                n_attempts += 1
-            else:
-                n_attempts = 0
+        output_dir = f'dataset/{aircraft}' # Folder for that aircraft
+        # Create the folder (and any parent folders) if they don't exist
+        os.makedirs(output_dir, exist_ok=True)
+
+        for query in queries:
+            n_queries = 0 # Times this query has run
+            n_failed_attempts = 0 # Times this query has run without new results
+        
+            # Keep looping until we actually have target_count files on disk
+            while get_file_count(output_dir) < target_count:
+                current_count = get_file_count(output_dir)
+                
+                logger.warning(f"📊 Progress for {aircraft}: {current_count}/{target_count}. Crawling for more...")
+                logger.warning(f"📊 Query {query} for {aircraft}, Attempt number {n_queries+1}")
+                # We use an offset to skip images we've likely already seen/failed
+                # This prevents the 'already downloaded' skip logic from ending the script
+                crawler = BingImageCrawler(storage={'root_dir': output_dir},
+                                        downloader_cls=UltimateStealthDownloader,
+                                        downloader_threads=8
+                                        )
+                # Apply the adapter to the crawler's internal session
+                adapter = TimeoutAdapter()
+                crawler.session.mount("https://", adapter)
+                crawler.session.mount("http://", adapter)
+                
+                # We ask for 1.5x what we need to account for dead links
+                crawler.crawl(
+                    keyword=query,
+                    max_num=target_count,
+                    offset=int(target_count * n_queries),
+                    file_idx_offset='auto'
+                )
+                n_queries += 1
+                # Remove duplicates after each crawl
+                remove_duplicates(output_dir)
+                
+                # Safety break: if we didn't gain any new images in a loop, stop to avoid infinite loop
+                if get_file_count(output_dir) == current_count:
+                    logger.warning(f"⚠️ No new images found for query {query} for the {n_failed_attempts+1} try")
+                    if n_failed_attempts >= max_tries-1:
+                        logger.warning(f"⚠️ No new images found for query {query} over {max_tries} loops. Jumping to next query...")
+                        break
+                    else:
+                        n_failed_attempts += 1
+                else:
+                    n_failed_attempts = 0
     
-    logger.info("Download process completed.")
+    logger.warning("Download process completed.")
 
 def clean_dataset_folder():
     """Clean the dataset folder by removing all contents"""
@@ -168,18 +157,14 @@ def main():
     # Clean the dataset folder first
     clean_dataset_folder()
 
-    # List of aircraft to download images for
-    aircraft_list = [
-        {"name": "Lockheed_Martin_F-35", "search_term": "Lockheed Martin F-35 fighter jet"},
-        {"name": "Chengdu_J-20", "search_term": "Chengdu J-20 fighter jet"},
-        {"name": "Eurofighter_Typhoon", "search_term": "Eurofighter Typhoon fighter jet"},
-        {"name": "Dassault_Rafale", "search_term": "Dassault Rafale fighter jet"},
-        {"name": "Saab_Gripen", "search_term": "Saab Gripen fighter jet"}
-    ]
-    persistent_download(aircraft_list, args.count)
+    with open('config/queries.json', 'r') as file:
+        # 2. Parse the file into a Python dictionary
+        config_data = json.load(file)
+
+    persistent_download(config_data, args.count)
     
     # Print image counts per class
-    counts = get_image_counts()
+    counts = get_image_counts(config_data.keys())
     logger.warning("Download completed. Image counts per class:")
     for aircraft, count in counts.items():
         logger.warning(f"  {aircraft}: {count} images")
