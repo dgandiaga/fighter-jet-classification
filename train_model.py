@@ -11,11 +11,14 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
+from sklearn.model_selection import train_test_split
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
+import argparse
+from tqdm import tqdm
 
 # Check for MPS support
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -44,15 +47,50 @@ def create_data_loaders(data_dir, batch_size=32, val_split=0.2, test_split=0.1):
     # Load dataset
     dataset = datasets.ImageFolder(root=data_dir, transform=train_transform)
     
+    # Get labels for stratified splitting
+    labels = [label for _, label in dataset.samples]
+    
     # Calculate sizes for splits
     total_size = len(dataset)
     val_size = int(val_split * total_size)
     test_size = int(test_split * total_size)
     train_size = total_size - val_size - test_size
     
-    # Split dataset into train, validation, and test
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset, [train_size, val_size, test_size])
+    # Split into train and (val + test) first
+    train_indices, temp_indices = train_test_split(
+        range(len(dataset)), 
+        test_size=(val_size + test_size), 
+        stratify=labels,
+        random_state=42
+    )
+    
+    # Split temp_indices into validation and test
+    if val_size > 0 and test_size > 0:
+        val_indices, test_indices = train_test_split(
+            temp_indices,
+            test_size=test_size,
+            train_size=val_size,
+            stratify=[labels[i] for i in temp_indices],
+            random_state=42
+        )
+    elif val_size > 0:
+        # Only validation split
+        val_indices, test_indices = train_test_split(
+            temp_indices,
+            test_size=test_size,
+            train_size=val_size,
+            stratify=[labels[i] for i in temp_indices],
+            random_state=42
+        )
+    else:
+        # Only test split
+        val_indices = []
+        test_indices = temp_indices
+    
+    # Create datasets using indices
+    train_dataset = torch.utils.data.Subset(dataset, train_indices)
+    val_dataset = torch.utils.data.Subset(dataset, val_indices)
+    test_dataset = torch.utils.data.Subset(dataset, test_indices)
     
     # Set transforms for validation and test datasets
     val_dataset.dataset.transform = test_transform
@@ -117,7 +155,9 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
         correct_train = 0
         total_train = 0
         
-        for inputs, labels in train_loader:
+        # Add tqdm progress bar for training
+        train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Training")
+        for inputs, labels in train_loader_tqdm:
             inputs, labels = inputs.to(device), labels.to(device)
             
             optimizer.zero_grad()
@@ -132,6 +172,12 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
             _, predicted = outputs.data.max(1)
             total_train += labels.size(0)
             correct_train += predicted.eq(labels.data).sum().item()
+            
+            # Update progress bar
+            train_loader_tqdm.set_postfix({
+                'Loss': f'{train_loss/(len(train_loader_tqdm)):.4f}',
+                'Acc': f'{100. * correct_train/total_train:.2f}%'
+            })
         
         # Validation phase
         model.eval()
@@ -139,8 +185,10 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
         correct_val = 0
         total_val = 0
         
+        # Add tqdm progress bar for validation
+        val_loader_tqdm = tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Validation")
         with torch.no_grad():
-            for inputs, labels in val_loader:
+            for inputs, labels in val_loader_tqdm:
                 inputs, labels = inputs.to(device), labels.to(device)
                 
                 outputs = model(inputs)
@@ -150,6 +198,12 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
                 _, predicted = outputs.data.max(1)
                 total_val += labels.size(0)
                 correct_val += predicted.eq(labels.data).sum().item()
+                
+                # Update progress bar
+                val_loader_tqdm.set_postfix({
+                    'Loss': f'{val_loss/(len(val_loader_tqdm)):.4f}',
+                    'Acc': f'{100. * correct_val/total_val:.2f}%'
+                })
         
         # Update learning rate
         scheduler.step()
@@ -186,80 +240,118 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
     return best_model, train_losses, val_losses, train_accuracies, val_accuracies
 
 def evaluate_model(model, test_loader, class_names):
-    """
-    Evaluate the model and generate metrics
-    """
-    model.eval()
-    
-    all_preds = []
-    all_labels = []
-    
-    with torch.no_grad():
-        for inputs, labels in test_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            _, predicted = outputs.max(1)
-            
-            all_preds.extend(predicted.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-    
-    # Generate classification report
-    report = classification_report(all_labels, all_preds, target_names=class_names)
-    print("Classification Report:")
-    print(report)
-    
-    # Generate confusion matrix
-    cm = confusion_matrix(all_labels, all_preds)
-    
-    # Plot confusion matrix
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=class_names, yticklabels=class_names)
-    plt.title('Confusion Matrix')
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
-    plt.tight_layout()
-    plt.savefig('train/confusion_matrix.png')
-    plt.close()
-    
-    return all_preds, all_labels
+     """
+     Evaluate the model and generate metrics
+     """
+     model.eval()
+     
+     all_preds = []
+     all_labels = []
+     
+     # Add tqdm progress bar for evaluation
+     test_loader_tqdm = tqdm(test_loader, desc="Evaluating")
+     with torch.no_grad():
+         for inputs, labels in test_loader_tqdm:
+             inputs, labels = inputs.to(device), labels.to(device)
+             outputs = model(inputs)
+             _, predicted = outputs.max(1)
+             
+             all_preds.extend(predicted.cpu().numpy())
+             all_labels.extend(labels.cpu().numpy())
+     
+     # Generate classification report
+     report = classification_report(all_labels, all_preds, target_names=class_names)
+     print("Classification Report:")
+     print(report)
+     
+     # Generate confusion matrix
+     cm = confusion_matrix(all_labels, all_preds)
+     
+     # Plot confusion matrix
+     plt.figure(figsize=(10, 8))
+     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                 xticklabels=class_names, yticklabels=class_names)
+     plt.title('Confusion Matrix')
+     plt.xlabel('Predicted')
+     plt.ylabel('Actual')
+     plt.tight_layout()
+     plt.savefig('train/confusion_matrix.png')
+     plt.close()
+     
+     return all_preds, all_labels
 
 def visualize_test_predictions(model, test_loader, class_names, num_samples=10):
-    """
-    Visualize predictions on test samples
-    """
-    model.eval()
-    
-    # Get a few test samples
-    test_iter = iter(test_loader)
-    images, labels = next(test_iter)
-    
-    # Make predictions
-    with torch.no_grad():
-        outputs = model(images.to(device))
-        _, predicted = outputs.max(1)
-    
-    # Plot images with predictions
-    plt.figure(figsize=(15, 10))
-    for i in range(min(num_samples, len(images))):
-        plt.subplot(2, 5, i + 1)
-        img = images[i].cpu().numpy().transpose(1, 2, 0)
-        # Denormalize image
-        img = (img * 0.225 + 0.456).clip(0, 1)
-        plt.imshow(img)
-        plt.title(f'True: {class_names[labels[i]]}\nPred: {class_names[predicted[i]]}')
-        plt.axis('off')
-    
-    plt.tight_layout()
-    plt.savefig('train/test_predictions.png')
-    plt.close()
+     """
+     Visualize predictions on test samples
+     """
+     model.eval()
+     
+     # Get all test samples
+     all_images = []
+     all_labels = []
+     all_predictions = []
+     
+     # Add tqdm progress bar for prediction visualization
+     test_loader_tqdm = tqdm(test_loader, desc="Visualizing predictions")
+     with torch.no_grad():
+         for images, labels in test_loader_tqdm:
+             images, labels = images.to(device), labels.to(device)
+             
+             outputs = model(images)
+             _, predicted = outputs.max(1)
+             
+             all_images.extend(images.cpu())
+             all_labels.extend(labels.cpu())
+             all_predictions.extend(predicted.cpu())
+     
+     # Calculate number of plots needed
+     total_samples = len(all_images)
+     num_plots = (total_samples + num_samples - 1) // num_samples
+     
+     # Create plots with num_samples images each
+     for plot_idx in range(num_plots):
+         start_idx = plot_idx * num_samples
+         end_idx = min((plot_idx + 1) * num_samples, total_samples)
+         
+         plt.figure(figsize=(15, 10))
+         
+         for i in range(start_idx, end_idx):
+             plt.subplot(2, 5, i - start_idx + 1)
+             img = all_images[i].numpy().transpose(1, 2, 0)
+             # Denormalize image
+             img = (img * 0.225 + 0.456).clip(0, 1)
+             plt.imshow(img)
+             plt.title(f'True: {class_names[all_labels[i]]}\nPred: {class_names[all_predictions[i]]}')
+             plt.axis('off')
+         
+         plt.tight_layout()
+         plt.savefig(f'train/test_predictions_{plot_idx + 1}.png')
+         plt.close()
 
 def main():
     """
     Main function to run the training pipeline
     """
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description='Train a computer vision model for fighter jet classification')
+    parser.add_argument('--data-dir', type=str, default='./dataset',
+                          help='Path to dataset directory (default: ./dataset)')
+    parser.add_argument('--batch-size', type=int, default=32,
+                          help='Batch size for training (default: 32)')
+    parser.add_argument('--val-split', type=float, default=0.2,
+                          help='Validation split ratio (default: 0.2)')
+    parser.add_argument('--test-split', type=float, default=0.1,
+                          help='Test split ratio (default: 0.1)')
+    parser.add_argument('--epochs', type=int, default=25,
+                          help='Number of training epochs (default: 25)')
+    parser.add_argument('--learning-rate', type=float, default=0.001,
+                          help='Learning rate (default: 0.001)')
+    
+    args = parser.parse_args()
+    
     # Set data directory
-    data_dir = "./dataset"
+    data_dir = args.data_dir
     
     # Check if dataset exists
     if not os.path.exists(data_dir):
@@ -269,7 +361,11 @@ def main():
     
     # Create data loaders
     print("Creating data loaders...")
-    train_loader, val_loader, test_loader, class_names = create_data_loaders(data_dir)
+    train_loader, val_loader, test_loader, class_names = create_data_loaders(
+        data_dir,
+        batch_size=args.batch_size,
+        val_split=args.val_split,
+        test_split=args.test_split)
     print(f"Classes: {class_names}")
     print(f"Number of classes: {len(class_names)}")
     
@@ -280,7 +376,9 @@ def main():
     # Train model
     print("Starting training...")
     trained_model, train_losses, val_losses, train_accuracies, val_accuracies = train_model(
-        model, train_loader, val_loader, num_epochs=25, learning_rate=0.001)
+        model, train_loader, val_loader,
+        num_epochs=args.epochs,
+        learning_rate=args.learning_rate)
     
     # Save the trained model
     torch.save(trained_model.state_dict(), 'train/trained_model.pth')
