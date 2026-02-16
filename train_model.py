@@ -37,7 +37,7 @@ def create_data_loaders(data_dir, img_size=224, batch_size=32, val_split=0.2, te
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-    
+
     test_transform = transforms.Compose([
         transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
@@ -113,9 +113,9 @@ def create_model(num_classes):
     # with good feature extraction capabilities
     model = models.resnet50(weights='DEFAULT')
     
-    # Freeze the base model layers to preserve learned features
-    #for param in model.parameters():
-    #    param.requires_grad = False
+    # Freeze params
+    for param in model.parameters():
+        param.requires_grad = False
     
     # Replace the final layer for our 5-class problem
     num_features = model.fc.in_features
@@ -123,31 +123,36 @@ def create_model(num_classes):
     
     return model
 
-def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.001):
+def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.001, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10):
     """
-    Train the model with checkpoint saving
+    Train the model with checkpoint saving and early stopping
     """
     # Move model to device
     model = model.to(device)
     
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+    # Initial optimizer during warmup
+    optimizer = optim.Adam(model.fc.parameters(), lr=warmup_lr)
     
     # Lists to store metrics
     train_losses = []
     val_losses = []
     train_accuracies = []
     val_accuracies = []
+    # Lists to store learning rates
+    fc_lr_history = []
+    layer4_lr_history = []
     
-    # Track best validation accuracy
+    # Track best validation accuracy and early stopping
     best_val_acc = 0.0
     best_model_path = 'train/best_model.pth'
+    patience_counter = 0
     
     print("Starting training...")
+    
+    # Initialize scheduler variable
+    scheduler = None
     
     for epoch in range(num_epochs):
         # Training phase
@@ -155,6 +160,23 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
         train_loss = 0.0
         correct_train = 0
         total_train = 0
+
+        if epoch == warmup_epochs:
+            print("Warm-up complete. Unfreezing backbone for fine-tuning...")
+            
+            # Unfreeze the backbone (or just Layer 4)
+            for param in model.layer4.parameters():
+                param.requires_grad = True
+                
+            # IMPORTANT: Re-initialize optimizer to include new parameters
+            # Use your previous successful warmup_lr for the head, but unfreeze_lr for the backbone
+            optimizer = optim.Adam([
+                {'params': model.layer4.parameters(), 'lr': unfreeze_lr},
+                {'params': model.fc.parameters(), 'lr': warmup_lr}
+            ])
+            
+            # Switch to your preferred StepLR scheduler for Phase 2
+            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step_size, gamma=scheduler_gamma)
         
         # Add tqdm progress bar for training
         train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Training")
@@ -207,7 +229,24 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
                 })
         
         # Update learning rate
-        scheduler.step()
+        #scheduler.step()
+        if scheduler is not None and epoch >= warmup_epochs:
+            scheduler.step()
+        
+        # Track learning rates
+        # Get current learning rates from optimizer
+        current_fc_lr = 0
+        current_layer4_lr = 0
+        if len(optimizer.param_groups) > 1:
+            # First group is layer4 (frozen during warmup, then decays)
+            # Second group is fc (fixed during warmup, then decays)
+            current_fc_lr = optimizer.param_groups[1]['lr']
+            current_layer4_lr = optimizer.param_groups[0]['lr']
+        elif len(optimizer.param_groups) > 0:
+            # If only one group, it's likely the fc layer
+            current_fc_lr = optimizer.param_groups[0]['lr']
+        fc_lr_history.append(current_fc_lr)
+        layer4_lr_history.append(current_layer4_lr)
         
         # Calculate average losses and accuracies
         avg_train_loss = train_loss / len(train_loader)
@@ -220,11 +259,17 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
         train_accuracies.append(train_acc)
         val_accuracies.append(val_acc)
         
-        # Save checkpoint if this is the best validation accuracy
+        # Check for early stopping
         if val_acc > best_val_acc:
             best_val_acc = val_acc
+            patience_counter = 0
             torch.save(model.state_dict(), best_model_path)
             print(f"New best model saved with validation accuracy: {val_acc:.2f}%")
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f"Early stopping triggered after {epoch+1} epochs. No improvement in validation accuracy for {patience} epochs.")
+                break
         
         print(f'Epoch [{epoch+1}/{num_epochs}]')
         print(f'  Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.2f}%')
@@ -238,155 +283,117 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
     
     print(f"Best model loaded with validation accuracy: {best_val_acc:.2f}%")
     
+    # Create learning rate plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(len(fc_lr_history)), fc_lr_history, label='Fully Connected Layer LR', marker='o')
+    plt.plot(range(len(layer4_lr_history)), layer4_lr_history, label='Layer 4 LR', marker='s')
+    plt.xlabel('Epoch')
+    plt.ylabel('Learning Rate')
+    plt.title('Learning Rates During Training')
+    plt.legend()
+    plt.grid(True)
+    plt.yscale('log')  # Set y-axis to logarithmic scale
+    plt.savefig('train/learning_rates.png')
+    plt.close()
+
     return best_model, train_losses, val_losses, train_accuracies, val_accuracies
 
 def evaluate_model(model, test_loader, class_names):
-     """
-     Evaluate the model and generate metrics
-     """
-     model.eval()
-     
-     all_preds = []
-     all_labels = []
-     
-     # Add tqdm progress bar for evaluation
-     test_loader_tqdm = tqdm(test_loader, desc="Evaluating")
-     with torch.no_grad():
-         for inputs, labels in test_loader_tqdm:
-             inputs, labels = inputs.to(device), labels.to(device)
-             outputs = model(inputs)
-             _, predicted = outputs.max(1)
-             
-             all_preds.extend(predicted.cpu().numpy())
-             all_labels.extend(labels.cpu().numpy())
-     
-     # Generate classification report
-     report = classification_report(all_labels, all_preds, target_names=class_names)
-     print("Classification Report:")
-     print(report)
-     
-     # Generate confusion matrix
-     cm = confusion_matrix(all_labels, all_preds)
-     
-     # Plot confusion matrix
-     plt.figure(figsize=(10, 8))
-     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                 xticklabels=class_names, yticklabels=class_names)
-     plt.title('Confusion Matrix')
-     plt.xlabel('Predicted')
-     plt.ylabel('Actual')
-     plt.tight_layout()
-     plt.savefig('train/confusion_matrix.png')
-     plt.close()
-     
-     return all_preds, all_labels
+    """
+    Evaluate the model and generate metrics
+    """
+    model.eval()
+    
+    all_preds = []
+    all_labels = []
+    
+    # Add tqdm progress bar for evaluation
+    test_loader_tqdm = tqdm(test_loader, desc="Evaluating")
+    with torch.no_grad():
+        for inputs, labels in test_loader_tqdm:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, predicted = outputs.max(1)
+            
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+    
+    # Generate classification report
+    report = classification_report(all_labels, all_preds, target_names=class_names)
+    print("Classification Report:")
+    print(report)
+    
+    # Generate confusion matrix
+    cm = confusion_matrix(all_labels, all_preds)
+    
+    # Plot confusion matrix
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=class_names, yticklabels=class_names)
+    plt.title('Confusion Matrix')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.tight_layout()
+    plt.savefig('train/confusion_matrix.png')
+    plt.close()
+    
+    return all_preds, all_labels
 
 def visualize_test_predictions(model, test_loader, class_names, num_samples=10):
-     """
-     Visualize predictions on test samples
-     """
-     model.eval()
-     
-     # Get all test samples
-     all_images = []
-     all_labels = []
-     all_predictions = []
-     
-     # Add tqdm progress bar for prediction visualization
-     test_loader_tqdm = tqdm(test_loader, desc="Visualizing predictions")
-     with torch.no_grad():
-         for images, labels in test_loader_tqdm:
-             images, labels = images.to(device), labels.to(device)
-             
-             outputs = model(images)
-             _, predicted = outputs.max(1)
-             
-             all_images.extend(images.cpu())
-             all_labels.extend(labels.cpu())
-             all_predictions.extend(predicted.cpu())
-     
-     # Calculate number of plots needed
-     total_samples = len(all_images)
-     num_plots = (total_samples + num_samples - 1) // num_samples
-     
-     # Create plots with num_samples images each
-     for plot_idx in range(num_plots):
-         start_idx = plot_idx * num_samples
-         end_idx = min((plot_idx + 1) * num_samples, total_samples)
+    """
+    Visualize predictions on test samples
+    """
+    model.eval()
+    
+    # Get all test samples
+    all_images = []
+    all_labels = []
+    all_predictions = []
+    
+    # Add tqdm progress bar for prediction visualization
+    test_loader_tqdm = tqdm(test_loader, desc="Visualizing predictions")
+    with torch.no_grad():
+        for images, labels in test_loader_tqdm:
+            images, labels = images.to(device), labels.to(device)
+            
+            outputs = model(images)
+            _, predicted = outputs.max(1)
+            
+            all_images.extend(images.cpu())
+            all_labels.extend(labels.cpu())
+            all_predictions.extend(predicted.cpu())
+    
+    # Calculate number of plots needed
+    total_samples = len(all_images)
+    num_plots = (total_samples + num_samples - 1) // num_samples
+    
+    # Create plots with num_samples images each
+    for plot_idx in range(num_plots):
+        start_idx = plot_idx * num_samples
+        end_idx = min((plot_idx + 1) * num_samples, total_samples)
+        
+        plt.figure(figsize=(15, 10))
          
-         plt.figure(figsize=(15, 10))
-         
-         for i in range(start_idx, end_idx):
-             plt.subplot(2, 5, i - start_idx + 1)
-             img = all_images[i].numpy().transpose(1, 2, 0)
-             # Denormalize image
-             img = (img * 0.225 + 0.456).clip(0, 1)
-             plt.imshow(img)
-             plt.title(f'True: {class_names[all_labels[i]]}\nPred: {class_names[all_predictions[i]]}')
-             plt.axis('off')
-         
-         plt.tight_layout()
-         plt.savefig(f'train/test_predictions_{plot_idx + 1}.png')
-         plt.close()
+        for i in range(start_idx, end_idx):
+            plt.subplot(2, 5, i - start_idx + 1)
+            img = all_images[i].numpy().transpose(1, 2, 0)
+            # Denormalize image
+            img = (img * 0.225 + 0.456).clip(0, 1)
+            plt.imshow(img)
+            plt.title(f'True: {class_names[all_labels[i]]}\nPred: {class_names[all_predictions[i]]}')
+            plt.axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(f'train/test_predictions_{plot_idx + 1}.png')
+        plt.close()
 
-def main():
-    """
-    Main function to run the training pipeline
-    """
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description='Train a computer vision model for fighter jet classification')
-    parser.add_argument('--data-dir', type=str, default='./dataset',
-                          help='Path to dataset directory (default: ./dataset)')
-    parser.add_argument('--batch-size', type=int, default=32,
-                          help='Batch size for training (default: 32)')
-    parser.add_argument('--val-split', type=float, default=0.2,
-                          help='Validation split ratio (default: 0.2)')
-    parser.add_argument('--test-split', type=float, default=0.1,
-                          help='Test split ratio (default: 0.1)')
-    parser.add_argument('--epochs', type=int, default=25,
-                          help='Number of training epochs (default: 25)')
-    parser.add_argument('--learning-rate', type=float, default=0.001,
-                          help='Learning rate (default: 0.001)')
-    
-    args = parser.parse_args()
-    
-    # Set data directory
-    data_dir = args.data_dir
-    
-    # Check if dataset exists
-    if not os.path.exists(data_dir):
-        print(f"Dataset directory {data_dir} does not exist.")
-        print("Please run the download_images.py script first to download the dataset.")
-        return
-    
-    # Create data loaders
-    print("Creating data loaders...")
-    train_loader, val_loader, test_loader, class_names = create_data_loaders(
-        data_dir,
-        batch_size=args.batch_size,
-        val_split=args.val_split,
-        test_split=args.test_split)
-    print(f"Classes: {class_names}")
-    print(f"Number of classes: {len(class_names)}")
-    
-    # Create model
-    print("Creating model...")
-    model = create_model(len(class_names))
-    
-    # Train model
-    print("Starting training...")
-    trained_model, train_losses, val_losses, train_accuracies, val_accuracies = train_model(
-        model, train_loader, val_loader,
-        num_epochs=args.epochs,
-        learning_rate=args.learning_rate)
-    
-    # Save the trained model
-    torch.save(trained_model.state_dict(), 'train/trained_model.pth')
-    print("Model saved as 'trained_model.pth'")
-    
+def plot_training_history(train_losses, val_losses, train_accuracies, val_accuracies):
     # Plot training history
     plt.figure(figsize=(12, 4))
+    print(len(train_losses))
+    print(len(val_losses))
+    print(len(train_accuracies))
+    print(len(val_accuracies))
     
     plt.subplot(1, 2, 1)
     plt.plot(train_losses, label='Training Loss')
@@ -407,8 +414,83 @@ def main():
     plt.tight_layout()
     plt.savefig('train/training_history.png')
     plt.close()
+
+
+def main():
+    """
+    Main function to run the training pipeline
+    """
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description='Train a computer vision model for fighter jet classification')
+    parser.add_argument('--data-dir', type=str, default='./dataset',
+                          help='Path to dataset directory (default: ./dataset)')
+    parser.add_argument('--batch-size', type=int, default=32,
+                          help='Batch size for training (default: 32)')
+    parser.add_argument('--val-split', type=float, default=0.2,
+                          help='Validation split ratio (default: 0.2)')
+    parser.add_argument('--test-split', type=float, default=0.1,
+                          help='Test split ratio (default: 0.1)')
+    parser.add_argument('--epochs', type=int, default=25,
+                          help='Number of training epochs (default: 25)')
+    parser.add_argument('--learning-rate', type=float, default=0.001,
+                          help='Learning rate (default: 0.001)')
+    parser.add_argument('--warmup-epochs', type=int, default=5,
+                          help='Number of warmup epochs (default: 5)')
+    parser.add_argument('--warmup-lr', type=float, default=1e-3,
+                          help='Learning rate during warmup (default: 1e-3)')
+    parser.add_argument('--unfreeze-lr', type=float, default=1e-5,
+                          help='Learning rate after unfreezing (default: 1e-5)')
+    parser.add_argument('--scheduler-step-size', type=int, default=7,
+                          help='Step size for scheduler (default: 7)')
+    parser.add_argument('--scheduler-gamma', type=float, default=0.1,
+                          help='Gamma for scheduler (default: 0.1)')
+    parser.add_argument('--img-size', type=int, default=224,
+                          help='Input image size (default: 224)')
+    parser.add_argument('--patience', type=int, default=10,
+                          help='Number of epochs with no improvement to wait before stopping (default: 10)')
+    
+    args = parser.parse_args()
+    
+    # Set data directory
+    data_dir = args.data_dir
+    
+    # Check if dataset exists
+    if not os.path.exists(data_dir):
+        print(f"Dataset directory {data_dir} does not exist.")
+        print("Please run the download_images.py script first to download the dataset.")
+        return
+    
+    # Create data loaders
+    print("Creating data loaders...")
+    train_loader, val_loader, test_loader, class_names = create_data_loaders(
+        data_dir,
+        img_size=args.img_size,
+        batch_size=args.batch_size,
+        val_split=args.val_split,
+        test_split=args.test_split)
+    print(f"Classes: {class_names}")
+    print(f"Number of classes: {len(class_names)}")
+    
+    # Create model
+    print("Creating model...")
+    model = create_model(len(class_names))
+    
+    # Train model
+    print("Starting training...")
+    trained_model, train_losses, val_losses, train_accuracies, val_accuracies = train_model(
+        model, train_loader, val_loader,
+        num_epochs=args.epochs,
+        learning_rate=args.learning_rate,
+        warmup_epochs=args.warmup_epochs,
+        warmup_lr=args.warmup_lr,
+        unfreeze_lr=args.unfreeze_lr,
+        scheduler_step_size=args.scheduler_step_size,
+        scheduler_gamma=args.scheduler_gamma,
+        patience=args.patience)
     
     print("Training completed and results saved.")
+    plot_training_history(train_losses, val_losses, train_accuracies, val_accuracies)
     evaluate_model(trained_model, test_loader, class_names)
     visualize_test_predictions(trained_model, test_loader, class_names)
 
