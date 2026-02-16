@@ -24,22 +24,22 @@ from tqdm import tqdm
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 print(f"Using device: {device}")
 
-def create_data_loaders(data_dir, batch_size=32, val_split=0.2, test_split=0.1):
+def create_data_loaders(data_dir, img_size=224, batch_size=32, val_split=0.2, test_split=0.1):
     """
     Create data loaders for training, validation, and testing
     """
     # Define transforms for training and validation/test
     train_transform = transforms.Compose([
-        transforms.Resize((224*2, 224*2)),
+        transforms.Resize((img_size, img_size)),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=90),
+        transforms.RandomRotation(degrees=20),
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
     test_transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -59,7 +59,8 @@ def create_data_loaders(data_dir, batch_size=32, val_split=0.2, test_split=0.1):
     # Split into train and (val + test) first
     train_indices, temp_indices = train_test_split(
         range(len(dataset)), 
-        test_size=(val_size + test_size), 
+        test_size=(val_size + test_size),
+        train_size=train_size,
         stratify=labels,
         random_state=42
     )
@@ -110,11 +111,11 @@ def create_model(num_classes):
     # Use ResNet50 as the base model - it's a well-established architecture
     # that provides good performance for image classification tasks
     # with good feature extraction capabilities
-    model = models.resnet50(pretrained=True)
+    model = models.resnet50(weights='DEFAULT')
     
     # Freeze the base model layers to preserve learned features
-    for param in model.parameters():
-        param.requires_grad = False
+    #for param in model.parameters():
+    #    param.requires_grad = False
     
     # Replace the final layer for our 5-class problem
     num_features = model.fc.in_features
