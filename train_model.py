@@ -13,6 +13,7 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
@@ -123,7 +124,7 @@ def create_model(num_classes):
     
     return model
 
-def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.001, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10):
+def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.001, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10, experiment_folder='train'):
     """
     Train the model with checkpoint saving and early stopping
     """
@@ -146,7 +147,7 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
     
     # Track best validation accuracy and early stopping
     best_val_acc = 0.0
-    best_model_path = 'train/best_model.pth'
+    best_model_path = f'{experiment_folder}/best_model.pth'
     patience_counter = 0
     
     print("Starting training...")
@@ -293,12 +294,12 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
     plt.legend()
     plt.grid(True)
     plt.yscale('log')  # Set y-axis to logarithmic scale
-    plt.savefig('train/learning_rates.png')
+    plt.savefig(f'{experiment_folder}/learning_rates.png')
     plt.close()
 
     return best_model, train_losses, val_losses, train_accuracies, val_accuracies
 
-def evaluate_model(model, test_loader, class_names):
+def evaluate_model(model, test_loader, class_names, experiment_folder="train"):
     """
     Evaluate the model and generate metrics
     """
@@ -319,6 +320,14 @@ def evaluate_model(model, test_loader, class_names):
             all_labels.extend(labels.cpu().numpy())
     
     # Generate classification report
+    report = classification_report(all_labels, all_preds, target_names=class_names, output_dict=True)
+
+    # 2. Load it into a Pandas DataFrame
+    df = pd.DataFrame(report).transpose()
+
+    # 3. Save it
+    df.to_csv(f'{experiment_folder}/classification_report.csv', index=True)
+
     report = classification_report(all_labels, all_preds, target_names=class_names)
     print("Classification Report:")
     print(report)
@@ -334,12 +343,12 @@ def evaluate_model(model, test_loader, class_names):
     plt.xlabel('Predicted')
     plt.ylabel('Actual')
     plt.tight_layout()
-    plt.savefig('train/confusion_matrix.png')
+    plt.savefig(f'{experiment_folder}/confusion_matrix.png')
     plt.close()
     
     return all_preds, all_labels
 
-def visualize_test_predictions(model, test_loader, class_names, num_samples=10):
+def visualize_test_predictions(model, test_loader, class_names, num_samples=10, experiment_folder="train"):
     """
     Visualize predictions on test samples
     """
@@ -373,7 +382,7 @@ def visualize_test_predictions(model, test_loader, class_names, num_samples=10):
         end_idx = min((plot_idx + 1) * num_samples, total_samples)
         
         plt.figure(figsize=(15, 10))
-         
+        
         for i in range(start_idx, end_idx):
             plt.subplot(2, 5, i - start_idx + 1)
             img = all_images[i].numpy().transpose(1, 2, 0)
@@ -384,16 +393,12 @@ def visualize_test_predictions(model, test_loader, class_names, num_samples=10):
             plt.axis('off')
         
         plt.tight_layout()
-        plt.savefig(f'train/test_predictions_{plot_idx + 1}.png')
+        plt.savefig(f'{experiment_folder}/test_predictions_{plot_idx + 1}.png')
         plt.close()
 
-def plot_training_history(train_losses, val_losses, train_accuracies, val_accuracies):
+def plot_training_history(train_losses, val_losses, train_accuracies, val_accuracies, experiment_folder='train'):
     # Plot training history
     plt.figure(figsize=(12, 4))
-    print(len(train_losses))
-    print(len(val_losses))
-    print(len(train_accuracies))
-    print(len(val_accuracies))
     
     plt.subplot(1, 2, 1)
     plt.plot(train_losses, label='Training Loss')
@@ -412,7 +417,7 @@ def plot_training_history(train_losses, val_losses, train_accuracies, val_accura
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig('train/training_history.png')
+    plt.savefig(f'{experiment_folder}/training_history.png')
     plt.close()
 
 
@@ -431,7 +436,7 @@ def main():
                           help='Validation split ratio (default: 0.2)')
     parser.add_argument('--test-split', type=float, default=0.1,
                           help='Test split ratio (default: 0.1)')
-    parser.add_argument('--epochs', type=int, default=25,
+    parser.add_argument('--epochs', type=int, default=100,
                           help='Number of training epochs (default: 25)')
     parser.add_argument('--learning-rate', type=float, default=0.001,
                           help='Learning rate (default: 0.001)')
@@ -449,11 +454,21 @@ def main():
                           help='Input image size (default: 224)')
     parser.add_argument('--patience', type=int, default=10,
                           help='Number of epochs with no improvement to wait before stopping (default: 10)')
+    parser.add_argument('--experiment-name', type=str, default=None,
+                          help='Name of the experiment (default: None)')
     
     args = parser.parse_args()
     
     # Set data directory
     data_dir = args.data_dir
+    
+    # Create experiment folder if experiment_name is provided
+    experiment_folder = None
+    if args.experiment_name:
+        experiment_folder = f"train/{args.experiment_name}"
+        os.makedirs(experiment_folder, exist_ok=True)
+    else:
+        experiment_folder = "train"
     
     # Check if dataset exists
     if not os.path.exists(data_dir):
@@ -487,12 +502,13 @@ def main():
         unfreeze_lr=args.unfreeze_lr,
         scheduler_step_size=args.scheduler_step_size,
         scheduler_gamma=args.scheduler_gamma,
-        patience=args.patience)
+        patience=args.patience,
+        experiment_folder=experiment_folder)
     
     print("Training completed and results saved.")
-    plot_training_history(train_losses, val_losses, train_accuracies, val_accuracies)
-    evaluate_model(trained_model, test_loader, class_names)
-    visualize_test_predictions(trained_model, test_loader, class_names)
+    plot_training_history(train_losses, val_losses, train_accuracies, val_accuracies, experiment_folder)
+    evaluate_model(trained_model, test_loader, class_names, experiment_folder)
+    visualize_test_predictions(trained_model, test_loader, class_names, experiment_folder=experiment_folder)
 
 if __name__ == "__main__":
     main()
