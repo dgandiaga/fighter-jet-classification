@@ -80,7 +80,7 @@ def process_images_with_yolo():
                                 # Save the cropped image
                                 output_path = os.path.join(output_dir, f"{os.path.splitext(file)[0]}_crop_{x1}_{y1}_{x2}_{y2}.jpg")
                                 cropped_image = Image.fromarray(cropped)
-                                cropped_image.save(output_path)
+                                cropped_image.convert("RGB").save(output_path)
                                 # print(f"Saved cropped image: {output_path}")
 
 
