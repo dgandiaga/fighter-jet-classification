@@ -35,7 +35,7 @@ def get_image_hashes(directory):
                 logger.warning(f"Failed to process {file_path}: {e}")
     return hashes
 
-def remove_duplicates(directory, threshold=12, delete=True):
+def remove_duplicates(directory, threshold=10, delete=True):
     """Remove duplicate images from a directory based on image hashes"""
     logger.info(f"Removing duplicates from {directory}")
     
@@ -59,7 +59,7 @@ def remove_duplicates(directory, threshold=12, delete=True):
             logger.debug(f"Comparing image {file_path} ({hash_value}) with image {image} ({existing_hash}): distance = {distance}")
             if distance <= threshold:
                 is_duplicate = True
-                logger.info(f"Hash {file_path} is duplicate of hash {image}")
+                logger.warning(f"Hash {file_path} is duplicate of hash {image}")
                 break
         
         if is_duplicate:
@@ -78,7 +78,7 @@ def remove_duplicates(directory, threshold=12, delete=True):
             except Exception as e:
                 logger.error(f"Failed to remove {duplicate}: {e}")
         else:
-            logger.warning(f'Duplicate detected: {duplicate}')
+            logger.info(f'Duplicate detected: {duplicate}')
     
     logger.warning(f"Detected {len(duplicates)} duplicates from {directory}")
     
