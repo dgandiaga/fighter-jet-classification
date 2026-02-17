@@ -1,0 +1,8 @@
+[
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --experiment-name exp_1",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --experiment-name exp_2",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --experiment-name exp_3",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-5 --patience 20 --epochs 100 --experiment-name exp_4",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-5 --patience 20 --epochs 100 --experiment-name exp_5",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-5 --patience 20 --epochs 100 --experiment-name exp_6"
+]
