@@ -124,7 +124,7 @@ def create_model(num_classes):
     
     return model
 
-def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.001, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10, experiment_folder='train', label_smoothing=0.0):
+def train_model(model, train_loader, val_loader, num_epochs=25, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10, experiment_folder='train', label_smoothing=0.0):
     """
     Train the model with checkpoint saving and early stopping
     """
@@ -537,7 +537,6 @@ def main():
     trained_model, train_losses, val_losses, train_accuracies, val_accuracies = train_model(
         model, train_loader, val_loader,
         num_epochs=args.epochs,
-        learning_rate=args.learning_rate,
         warmup_epochs=args.warmup_epochs,
         warmup_lr=args.warmup_lr,
         unfreeze_lr=args.unfreeze_lr,
