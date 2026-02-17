@@ -124,7 +124,7 @@ def create_model(num_classes):
     
     return model
 
-def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.001, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10, experiment_folder='train'):
+def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.001, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10, experiment_folder='train', label_smoothing=0.0):
     """
     Train the model with checkpoint saving and early stopping
     """
@@ -132,7 +132,7 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
     model = model.to(device)
     
     # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     # Initial optimizer during warmup
     optimizer = optim.Adam(model.fc.parameters(), lr=warmup_lr)
     
@@ -491,6 +491,8 @@ def main():
                           help='Input image size (default: 224)')
     parser.add_argument('--patience', type=int, default=10,
                           help='Number of epochs with no improvement to wait before stopping (default: 10)')
+    parser.add_argument('--label-smoothing', type=float, default=0.0,
+                          help='Label smoothing factor (default: 0.0, set to 0.1 for smoothing)')
     parser.add_argument('--experiment-name', type=str, default=None,
                           help='Name of the experiment (default: None)')
     parser.add_argument('--test-time-augmentation', action='store_true',
@@ -542,7 +544,8 @@ def main():
         scheduler_step_size=args.scheduler_step_size,
         scheduler_gamma=args.scheduler_gamma,
         patience=args.patience,
-        experiment_folder=experiment_folder)
+        experiment_folder=experiment_folder,
+        label_smoothing=args.label_smoothing)
     
     print("Training completed and results saved.")
     plot_training_history(train_losses, val_losses, train_accuracies, val_accuracies, experiment_folder)
