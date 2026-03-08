@@ -13,6 +13,6 @@
     "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --test-time-augmentation --experiment-name exp_12",
     "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --label-smoothing 0.1 --experiment-name exp_13",
     "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --label-smoothing 0.1 --experiment-name exp_14",
-    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --label-smoothing 0.1 --experiment-name exp_14"
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --label-smoothing 0.1 --experiment-name exp_15"
 
 ]
