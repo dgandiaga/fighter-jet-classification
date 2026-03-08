@@ -1,6 +1,10 @@
-# Fighter Jet Classification Project
+# Fighter Jet Classification
 
-This project implements a complete computer vision pipeline for classifying images of different fighter jets into 5 classes. The system performs web scraping, image processing with YOLO object detection, duplicate removal, and training of a ResNet model with MPS support.
+This project webscraps a fighter jet dataset, filters and extracts crops to create proper train/test/val sets and allows to orchestrate batches of experiments with different architectures and training methodologies.
+<img width="1500" height="1000" alt="image" src="https://github.com/user-attachments/assets/f94a70cf-41e2-46f2-a479-fd93e8e8f3d4" />
+
+<img width="1000" height="800" alt="image" src="https://github.com/user-attachments/assets/e01ec7e0-a107-43bc-a734-980ba938c751" />
+
 
 ## Project Structure
 
@@ -152,6 +156,7 @@ The `config/experiments.json` file contains configurations for multiple training
 
 The model automatically detects and uses MPS (Metal Performance Shaders) on Apple Silicon Macs for accelerated computation.
 
+
 ## 📊 Results and Analysis
 The project evolved through several experimental phases, transitioning from raw web-scraped data to a highly curated dataset using YOLOv8 crops and advanced regularization techniques.
 
@@ -169,10 +174,9 @@ This gap indicated that the ResNet50 backbone, when fully unfrozen, was memorizi
 
 The most significant leap in performance came from dataset curation. Raw scrapes contained significant "noise," including non-plane images or aircraft obscured in the background. By utilizing YOLOv8 to isolate tight crops, the model's focus was restricted to the aircraft itself.
 
-However, this curation introduced a "data leakage" risk. Because multiple crops often originated from the same high-resolution source or burst-photo gallery, structural hashes (pHash) initially flagged up to 95% of the data as duplicates. To combat this while maintaining a viable dataset size, we implemented Source-based Splitting, ensuring that all crops from a single original image remain within the same Train or Validation fold.
-
 ### Model Performance and Classification
 
 The final model achieves strong class separation, though some confusion remains between aerodynamically similar delta-wing fighters. The Confusion Matrix reveals that the Dassault Rafale (45 correct) and Eurofighter Typhoon (36 correct) are the strongest performers, while the Saab Gripen and J-20 occasionally show inter-class confusion due to similar planform profiles in certain orientations.
 
 Despite these challenges, the qualitative results show the model is highly capable of identifying key features even in high-aspect-ratio or tilted shots. The integration of Test-Time Augmentation (TTA) and Label Smoothing (0.1) helped bridge the final validation gap, resulting in a more robust and generalizable classifier.
+
