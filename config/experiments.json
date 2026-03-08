@@ -2,7 +2,17 @@
     "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --experiment-name exp_1",
     "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --experiment-name exp_2",
     "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --experiment-name exp_3",
-    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-5 --patience 20 --epochs 100 --experiment-name exp_4",
-    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-5 --patience 20 --epochs 100 --experiment-name exp_5",
-    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-5 --patience 20 --epochs 100 --experiment-name exp_6"
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-4 --patience 20 --epochs 100 --experiment-name exp_4",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-4 --patience 20 --epochs 100 --experiment-name exp_5",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 1e-4 --patience 20 --epochs 100 --experiment-name exp_6",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 5e-5 --patience 20 --epochs 100 --experiment-name exp_7",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 5e-5 --patience 20 --epochs 100 --experiment-name exp_8",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 5 --warmup-lr 1e-3 --unfreeze-lr 5e-5 --patience 20 --epochs 100 --experiment-name exp_9",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --test-time-augmentation --experiment-name exp_10",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --test-time-augmentation --experiment-name exp_11",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --test-time-augmentation --experiment-name exp_12",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --label-smoothing 0.1 --experiment-name exp_13",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --label-smoothing 0.1 --experiment-name exp_14",
+    "python train_model.py --data-dir dataset_curated/ --warmup-epochs 0 --unfreeze-lr 1e-3 --patience 20 --epochs 100 --label-smoothing 0.1 --experiment-name exp_15"
+
 ]

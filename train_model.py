@@ -124,7 +124,7 @@ def create_model(num_classes):
     
     return model
 
-def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.001, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10, experiment_folder='train'):
+def train_model(model, train_loader, val_loader, num_epochs=25, warmup_epochs=5, warmup_lr=1e-3, unfreeze_lr=1e-5, scheduler_step_size=7, scheduler_gamma=0.1, patience=10, experiment_folder='train', label_smoothing=0.0):
     """
     Train the model with checkpoint saving and early stopping
     """
@@ -132,7 +132,7 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
     model = model.to(device)
     
     # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     # Initial optimizer during warmup
     optimizer = optim.Adam(model.fc.parameters(), lr=warmup_lr)
     
@@ -299,7 +299,7 @@ def train_model(model, train_loader, val_loader, num_epochs=25, learning_rate=0.
 
     return best_model, train_losses, val_losses, train_accuracies, val_accuracies
 
-def evaluate_model(model, test_loader, class_names, experiment_folder="train"):
+def evaluate_model(model, test_loader, class_names, experiment_folder="train", use_tta=False):
     """
     Evaluate the model and generate metrics
     """
@@ -313,8 +313,27 @@ def evaluate_model(model, test_loader, class_names, experiment_folder="train"):
     with torch.no_grad():
         for inputs, labels in test_loader_tqdm:
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            _, predicted = outputs.max(1)
+            
+            # Apply test time augmentation if enabled
+            if use_tta:
+                # Apply multiple augmentations and average predictions
+                predictions = []
+                # Original prediction
+                outputs = model(inputs)
+                predictions.append(outputs)
+                
+                # Add some augmentations for TTA
+                # We'll apply horizontal flip augmentation
+                flipped_inputs = transforms.functional.hflip(inputs)
+                flipped_outputs = model(flipped_inputs)
+                predictions.append(flipped_outputs)
+                
+                # Average the predictions
+                avg_outputs = torch.stack(predictions).mean(dim=0)
+                _, predicted = avg_outputs.max(1)
+            else:
+                outputs = model(inputs)
+                _, predicted = outputs.max(1)
             
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
@@ -348,7 +367,7 @@ def evaluate_model(model, test_loader, class_names, experiment_folder="train"):
     
     return all_preds, all_labels
 
-def visualize_test_predictions(model, test_loader, class_names, num_samples=10, experiment_folder="train"):
+def visualize_test_predictions(model, test_loader, class_names, num_samples=10, experiment_folder="train", use_tta=False):
     """
     Visualize predictions on test samples
     """
@@ -365,8 +384,26 @@ def visualize_test_predictions(model, test_loader, class_names, num_samples=10, 
         for images, labels in test_loader_tqdm:
             images, labels = images.to(device), labels.to(device)
             
-            outputs = model(images)
-            _, predicted = outputs.max(1)
+            # Apply test time augmentation if enabled
+            if use_tta:
+                # Apply multiple augmentations and average predictions
+                predictions = []
+                # Original prediction
+                outputs = model(images)
+                predictions.append(outputs)
+                
+                # Add some augmentations for TTA
+                # We'll apply horizontal flip augmentation
+                flipped_inputs = transforms.functional.hflip(images)
+                flipped_outputs = model(flipped_inputs)
+                predictions.append(flipped_outputs)
+                
+                # Average the predictions
+                avg_outputs = torch.stack(predictions).mean(dim=0)
+                _, predicted = avg_outputs.max(1)
+            else:
+                outputs = model(images)
+                _, predicted = outputs.max(1)
             
             all_images.extend(images.cpu())
             all_labels.extend(labels.cpu())
@@ -454,8 +491,12 @@ def main():
                           help='Input image size (default: 224)')
     parser.add_argument('--patience', type=int, default=10,
                           help='Number of epochs with no improvement to wait before stopping (default: 10)')
+    parser.add_argument('--label-smoothing', type=float, default=0.0,
+                          help='Label smoothing factor (default: 0.0, set to 0.1 for smoothing)')
     parser.add_argument('--experiment-name', type=str, default=None,
                           help='Name of the experiment (default: None)')
+    parser.add_argument('--test-time-augmentation', action='store_true',
+                          help='Enable test time augmentation (default: disabled)')
     
     args = parser.parse_args()
     
@@ -496,19 +537,19 @@ def main():
     trained_model, train_losses, val_losses, train_accuracies, val_accuracies = train_model(
         model, train_loader, val_loader,
         num_epochs=args.epochs,
-        learning_rate=args.learning_rate,
         warmup_epochs=args.warmup_epochs,
         warmup_lr=args.warmup_lr,
         unfreeze_lr=args.unfreeze_lr,
         scheduler_step_size=args.scheduler_step_size,
         scheduler_gamma=args.scheduler_gamma,
         patience=args.patience,
-        experiment_folder=experiment_folder)
+        experiment_folder=experiment_folder,
+        label_smoothing=args.label_smoothing)
     
     print("Training completed and results saved.")
     plot_training_history(train_losses, val_losses, train_accuracies, val_accuracies, experiment_folder)
-    evaluate_model(trained_model, test_loader, class_names, experiment_folder)
-    visualize_test_predictions(trained_model, test_loader, class_names, experiment_folder=experiment_folder)
+    evaluate_model(trained_model, test_loader, class_names, experiment_folder, use_tta=args.test_time_augmentation)
+    visualize_test_predictions(trained_model, test_loader, class_names, experiment_folder=experiment_folder, use_tta=args.test_time_augmentation)
 
 if __name__ == "__main__":
     main()
