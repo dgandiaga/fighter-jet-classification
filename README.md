@@ -1,4 +1,4 @@
-# Computer Vision Image Classification Project
+# Fighter Jet Classification
 
 This project webscraps a fighter jet dataset, filters and extracts crops to create proper train/test/val sets and allows to run batches of experiments with different architectures and training methodologies.
 <img width="1500" height="1000" alt="image" src="https://github.com/user-attachments/assets/f94a70cf-41e2-46f2-a479-fd93e8e8f3d4" />
