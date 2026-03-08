@@ -1,7 +1,8 @@
 # Computer Vision Image Classification Project
 
 This project webscraps a fighter jet dataset, filters and extracts crops to create proper train/test/val sets and allows to run batches of experiments with different architectures and training methodologies.
-<img width="1500" height="1000" alt="image" src="https://github.com/user-attachments/assets/85da6a88-c7e7-449e-8a2d-8d8697d0e697" />
+<img width="1500" height="1000" alt="image" src="https://github.com/user-attachments/assets/f94a70cf-41e2-46f2-a479-fd93e8e8f3d4" />
+
 <img width="1000" height="800" alt="image" src="https://github.com/user-attachments/assets/e01ec7e0-a107-43bc-a734-980ba938c751" />
 
 
