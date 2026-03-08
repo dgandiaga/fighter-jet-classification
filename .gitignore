@@ -45,6 +45,7 @@ __pypackages__/
 .idea/
 *.swp
 *.swo
+.clinerules
 
 # OS generated files
 .DS_Store
